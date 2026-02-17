@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { FlatList, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Eye, Filter, XCircle, CheckCircle, Clock } from "lucide-react-native";
 import { Card } from "@/components/common/Card";
 import { useFleet } from "@/context/FleetContext";
 import { useAuth } from "@/context/AuthContext";
 import { useThemeColors, type ThemeColors } from "@/theme/colors";
+import { formatVehicleLabel } from "@/utils/formatVehicleLabel";
 
 type StatusFilter = "all" | string;
 
@@ -19,10 +20,10 @@ const mapStatus = (status?: string) => {
 };
 
 export function HistoryScreen() {
-  const { routes } = useFleet();
+  const { routes, vehicles, drivers } = useFleet();
   const { getAllUsers, user } = useAuth();
   const colors = useThemeColors();
-  const styles = getStyles(colors);
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const canViewHistory =
     !!user?.permissions?.canViewMap || !!user?.permissions?.canCreateRoutes;
   const users = getAllUsers();
@@ -45,6 +46,14 @@ export function HistoryScreen() {
   }, [routes, filterStatus]);
 
   const selected = filtered.find((r) => r.id === selectedId) ?? null;
+  const vehicleById = useMemo(
+    () => new Map(vehicles.map((veh) => [veh.id, veh])),
+    [vehicles]
+  );
+  const driverById = useMemo(
+    () => new Map(drivers.map((driver) => [driver.id, driver])),
+    [drivers]
+  );
 
   const statusMeta: Record<
     string,
@@ -69,6 +78,57 @@ export function HistoryScreen() {
     );
   };
 
+  const listCount = filtered.length;
+  const renderItem = ({
+    item,
+    index,
+  }: {
+    item: (typeof filtered)[number];
+    index: number;
+  }) => {
+    const meta = mapStatus(item.estado);
+    const vehicleLabel = formatVehicleLabel(
+      vehicleById.get(item.vehiculoId),
+      item.vehiculoId
+    );
+    const driver =
+      driverById.get(item.conductorId) ?? users.find((u) => u.id === item.conductorId);
+    const driverLabel = driver
+      ? "firstName" in driver
+        ? `${driver.firstName} ${driver.lastName}`.trim()
+        : `${(driver as any).nombres ?? ""} ${(driver as any).apellidos ?? ""}`.trim()
+      : item.conductorId;
+    const isFirst = index === 0;
+    const isLast = index === listCount - 1;
+    return (
+      <View
+        style={[
+          styles.listItem,
+          isFirst && styles.listItemFirst,
+          isLast && styles.listItemLast,
+        ]}
+      >
+        <TouchableOpacity
+          style={[styles.item, !isLast && styles.itemDivider]}
+          onPress={() => setSelectedId(item.id)}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.itemTitle}>{item.nombre || "Ruta"}</Text>
+            <Text style={styles.muted}>
+              Vehículo: {vehicleLabel} · Conductor: {driverLabel}
+            </Text>
+            <Text style={styles.date}>
+              Inicio:{" "}
+              {item.fechaInicio ? new Date(item.fechaInicio).toLocaleString() : "N/D"}
+            </Text>
+          </View>
+          {renderBadge(meta)}
+          <Eye color={colors.textMuted} size={18} />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   if (!canViewHistory) {
     return (
       <ScrollView
@@ -86,102 +146,100 @@ export function HistoryScreen() {
   }
 
   return (
-    <ScrollView
+    <FlatList
+      data={filtered}
+      keyExtractor={(item) => item.id}
+      renderItem={renderItem}
       style={{ flex: 1, backgroundColor: colors.background }}
       contentContainerStyle={{ padding: 16, gap: 12 }}
-    >
-      <View style={styles.header}>
-        <Text style={styles.title}>Historial de rutas</Text>
-        <View style={styles.filters}>
-          {["all", "en_progreso", "completada", "pendiente", "cancelada"].map((status) => {
-            const active = filterStatus === status;
-            return (
-              <TouchableOpacity
-                key={status}
-                style={[styles.filterChip, active && styles.filterChipActive]}
-                onPress={() => setFilterStatus(status as StatusFilter)}
-              >
-                <Filter color={active ? colors.primary : colors.textMuted} size={14} />
-                <Text style={[styles.filterText, active && styles.filterTextActive]}>
-                  {status === "all" ? "Todas" : status.replace("_", " ")}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+      initialNumToRender={12}
+      windowSize={7}
+      removeClippedSubviews
+      ListHeaderComponent={
+        <View style={styles.header}>
+          <Text style={styles.title}>Historial de rutas</Text>
+          <View style={styles.filters}>
+            {["all", "en_progreso", "completada", "pendiente", "cancelada"].map((status) => {
+              const active = filterStatus === status;
+              return (
+                <TouchableOpacity
+                  key={status}
+                  style={[styles.filterChip, active && styles.filterChipActive]}
+                  onPress={() => setFilterStatus(status as StatusFilter)}
+                >
+                  <Filter color={active ? colors.primary : colors.textMuted} size={14} />
+                  <Text style={[styles.filterText, active && styles.filterTextActive]}>
+                    {status === "all" ? "Todas" : status.replace("_", " ")}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
-      </View>
-
-      <Card>
-        {filtered.length === 0 && (
-          <Text style={styles.muted}>No hay rutas para el filtro seleccionado.</Text>
-        )}
-        {filtered.map((route) => {
-          const driver = users.find((u) => u.id === route.conductorId);
-          const meta = mapStatus(route.estado);
-          return (
-            <TouchableOpacity
-              key={route.id}
-              style={styles.item}
-              onPress={() => setSelectedId(route.id)}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.itemTitle}>{route.nombre || "Ruta"}</Text>
-                <Text style={styles.muted}>
-                  Vehículo: {route.vehiculoId} · Conductor:{" "}
-                  {driver ? `${driver.nombres} ${driver.apellidos}` : route.conductorId}
-                </Text>
-                <Text style={styles.date}>
-                  Inicio:{" "}
-                  {route.fechaInicio
-                    ? new Date(route.fechaInicio).toLocaleString()
-                    : "N/D"}
-                </Text>
-              </View>
-              {renderBadge(meta)}
-              <Eye color={colors.textMuted} size={18} />
-            </TouchableOpacity>
-          );
-        })}
-      </Card>
-
-      {selected && (
+      }
+      ListEmptyComponent={
         <Card>
-          <Text style={styles.detailTitle}>{selected.nombre}</Text>
-          <View style={styles.detailRow}>
-            <Text style={styles.label}>Vehículo</Text>
-            <Text style={styles.value}>{selected.vehiculoId}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.label}>Conductor</Text>
-            <Text style={styles.value}>{selected.conductorId}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.label}>Carga</Text>
-            <Text style={styles.value}>{selected.carga ?? "N/D"}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.label}>Estado</Text>
-            {renderBadge(selected.estado)}
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.label}>Inicio</Text>
-            <Text style={styles.value}>
-              {selected.fechaInicio
-                ? new Date(selected.fechaInicio).toLocaleString()
-                : "N/D"}
-            </Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.label}>Fin</Text>
-            <Text style={styles.value}>
-              {selected.fechaFin
-                ? new Date(selected.fechaFin).toLocaleString()
-                : "N/D"}
-            </Text>
-          </View>
+          <Text style={styles.muted}>No hay rutas para el filtro seleccionado.</Text>
         </Card>
-      )}
-    </ScrollView>
+      }
+      ListFooterComponent={
+        selected ? (
+          <Card>
+            <Text style={styles.detailTitle}>{selected.nombre}</Text>
+            <View style={styles.detailRow}>
+              <Text style={styles.label}>Vehículo</Text>
+              <Text style={styles.value}>
+                {formatVehicleLabel(
+                  vehicleById.get(selected.vehiculoId),
+                  selected.vehiculoId
+                )}
+              </Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.label}>Conductor</Text>
+              <Text style={styles.value}>
+                {(() => {
+                  const driver =
+                    driverById.get(selected.conductorId) ??
+                    users.find((u) => u.id === selected.conductorId);
+                  if (!driver) return selected.conductorId;
+                  if ("firstName" in driver) {
+                    return `${driver.firstName} ${driver.lastName}`.trim();
+                  }
+                  return `${(driver as any).nombres ?? ""} ${(driver as any).apellidos ?? ""}`.trim();
+                })()}
+              </Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.label}>Carga</Text>
+              <Text style={styles.value}>{selected.carga ?? "N/D"}</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.label}>Estado</Text>
+              {renderBadge(selected.estado)}
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.label}>Inicio</Text>
+              <Text style={styles.value}>
+                {selected.fechaInicio
+                  ? new Date(selected.fechaInicio).toLocaleString()
+                  : "N/D"}
+              </Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.label}>Fin</Text>
+              <Text style={styles.value}>
+                {selected.fechaFin
+                  ? new Date(selected.fechaFin).toLocaleString()
+                  : "N/D"}
+              </Text>
+            </View>
+          </Card>
+        ) : (
+          <View style={{ height: 4 }} />
+        )
+      }
+    />
   );
 }
 
@@ -227,13 +285,33 @@ const getStyles = (colors: ThemeColors) =>
     filterTextActive: {
       color: colors.primary,
     },
-    item: {
+    listItem: {
+      backgroundColor: colors.surface,
+      borderLeftWidth: 1,
+      borderRightWidth: 1,
+      borderColor: colors.border,
+    },
+    listItemFirst: {
+      borderTopWidth: 1,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      overflow: "hidden",
+    },
+    listItemLast: {
       borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      borderBottomLeftRadius: 16,
+      borderBottomRightRadius: 16,
+      overflow: "hidden",
+    },
+    item: {
       paddingVertical: 12,
       flexDirection: "row",
       alignItems: "center",
       gap: 10,
+    },
+    itemDivider: {
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
     },
     itemTitle: {
       fontSize: 16,

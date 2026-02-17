@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useMemo, useState } from "react";
+import { FlatList, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Car, Pencil, Trash2, X } from "lucide-react-native";
 import { TextField } from "@/components/common/TextField";
 import { Button } from "@/components/common/Button";
@@ -8,6 +8,7 @@ import { useFleet, Vehicle } from "@/context/FleetContext";
 import { useAuth } from "@/context/AuthContext";
 import { notify, notifyError } from "@/utils/notify";
 import { useThemeColors, type ThemeColors } from "@/theme/colors";
+import { formatVehicleLabel } from "@/utils/formatVehicleLabel";
 
 const estados: Vehicle["estado"][] = ["disponible", "en_ruta", "mantenimiento"];
 
@@ -16,7 +17,7 @@ export function VehiclesScreen() {
   const canManageVehicles = !!user?.permissions?.canManageVehicles;
   const { vehicles, addVehicle, updateVehicle, deleteVehicle } = useFleet();
   const colors = useThemeColors();
-  const styles = getStyles(colors);
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [form, setForm] = useState({
     placa: "",
@@ -103,116 +104,138 @@ export function VehiclesScreen() {
     );
   }
 
+  const listCount = vehicles.length;
+  const renderVehicle = ({ item, index }: { item: Vehicle; index: number }) => {
+    const isFirst = index === 0;
+    const isLast = index === listCount - 1;
+    return (
+      <View
+        style={[
+          styles.listItem,
+          isFirst && styles.listItemFirst,
+          isLast && styles.listItemLast,
+        ]}
+      >
+        <View style={[styles.item, !isLast && styles.itemDivider]}>
+          <View style={styles.icon}>
+            <Car color={colors.primary} size={18} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.name}>{formatVehicleLabel(item)}</Text>
+            <Text style={styles.muted}>Año: {item.anio}</Text>
+            <Text style={styles.badge}>{item.estado}</Text>
+          </View>
+          <TouchableOpacity onPress={() => startEdit(item)}>
+            <Pencil color={colors.primary} size={18} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={async () => {
+              const result = await deleteVehicle(item.id);
+              if (!result.ok && result.message) {
+                notifyError(result.message);
+              }
+            }}
+          >
+            <Trash2 color={colors.dangerText} size={18} />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
   return (
-    <ScrollView
+    <FlatList
+      data={vehicles}
+      keyExtractor={(item) => item.id}
+      renderItem={renderVehicle}
       style={{ flex: 1, backgroundColor: colors.background }}
       contentContainerStyle={{ padding: 16, gap: 14 }}
-    >
-      <Text style={styles.title}>Vehiculos</Text>
-
-      <Card>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>
-            {editingVehicle ? "Editar vehiculo" : "Nuevo vehiculo"}
-          </Text>
-          {editingVehicle && (
-            <TouchableOpacity style={styles.clearButton} onPress={resetForm}>
-              <X color={colors.textMuted} size={16} />
-              <Text style={styles.clearText}>Cancelar</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        <TextField
-          label="Placa"
-          value={form.placa}
-          onChangeText={(v) => setForm((s) => ({ ...s, placa: v }))}
-        />
-        <View style={styles.row}>
-          <TextField
-            label="Marca"
-            value={form.marca}
-            onChangeText={(v) => setForm((s) => ({ ...s, marca: v }))}
-            style={{ flex: 1 }}
-          />
-          <TextField
-            label="Modelo"
-            value={form.modelo}
-            onChangeText={(v) => setForm((s) => ({ ...s, modelo: v }))}
-            style={{ flex: 1 }}
-          />
-        </View>
-        <TextField
-          label="Anio"
-          value={form.anio}
-          onChangeText={(v) => setForm((s) => ({ ...s, anio: v }))}
-          keyboardType="numeric"
-        />
-        <TextField
-          label="Descripcion"
-          value={form.descripcion}
-          onChangeText={(v) => setForm((s) => ({ ...s, descripcion: v }))}
-          multiline
-        />
-        <View style={styles.selectorRow}>
-          <Text style={styles.label}>Estado</Text>
-          <View style={styles.stateRow}>
-            {estados.map((estado) => {
-              const active = estado === form.estado;
-              return (
-                <TouchableOpacity
-                  key={estado}
-                  style={[styles.chip, active && styles.chipActive]}
-                  onPress={() => setForm((s) => ({ ...s, estado }))}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                    {estado}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-        <Button
-          title={editingVehicle ? "Actualizar" : "Guardar"}
-          onPress={handleSubmit}
-          loading={loading}
-        />
-      </Card>
-
-      <Card>
-        <Text style={styles.sectionTitle}>Listado</Text>
-        {vehicles.length === 0 && (
-          <Text style={styles.muted}>No hay vehiculos registrados.</Text>
-        )}
-        {vehicles.map((veh) => (
-          <View key={veh.id} style={styles.item}>
-            <View style={styles.icon}>
-              <Car color={colors.primary} size={18} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.name}>{veh.placa}</Text>
-              <Text style={styles.muted}>
-                {veh.marca} | {veh.modelo} | {veh.anio}
+      initialNumToRender={12}
+      windowSize={7}
+      removeClippedSubviews
+      ListHeaderComponent={
+        <>
+          <Text style={styles.title}>Vehiculos</Text>
+          <Card>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>
+                {editingVehicle ? "Editar vehiculo" : "Nuevo vehiculo"}
               </Text>
-              <Text style={styles.badge}>{veh.estado}</Text>
+              {editingVehicle && (
+                <TouchableOpacity style={styles.clearButton} onPress={resetForm}>
+                  <X color={colors.textMuted} size={16} />
+                  <Text style={styles.clearText}>Cancelar</Text>
+                </TouchableOpacity>
+              )}
             </View>
-            <TouchableOpacity onPress={() => startEdit(veh)}>
-              <Pencil color={colors.primary} size={18} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={async () => {
-                const result = await deleteVehicle(veh.id);
-                if (!result.ok && result.message) {
-                  notifyError(result.message);
-                }
-              }}
-            >
-              <Trash2 color={colors.dangerText} size={18} />
-            </TouchableOpacity>
+            <TextField
+              label="Placa"
+              value={form.placa}
+              onChangeText={(v) => setForm((s) => ({ ...s, placa: v }))}
+            />
+            <View style={styles.row}>
+              <TextField
+                label="Marca"
+                value={form.marca}
+                onChangeText={(v) => setForm((s) => ({ ...s, marca: v }))}
+                style={{ flex: 1 }}
+              />
+              <TextField
+                label="Modelo"
+                value={form.modelo}
+                onChangeText={(v) => setForm((s) => ({ ...s, modelo: v }))}
+                style={{ flex: 1 }}
+              />
+            </View>
+            <TextField
+              label="Anio"
+              value={form.anio}
+              onChangeText={(v) => setForm((s) => ({ ...s, anio: v }))}
+              keyboardType="numeric"
+            />
+            <TextField
+              label="Descripcion"
+              value={form.descripcion}
+              onChangeText={(v) => setForm((s) => ({ ...s, descripcion: v }))}
+              multiline
+            />
+            <View style={styles.selectorRow}>
+              <Text style={styles.label}>Estado</Text>
+              <View style={styles.stateRow}>
+                {estados.map((estado) => {
+                  const active = estado === form.estado;
+                  return (
+                    <TouchableOpacity
+                      key={estado}
+                      style={[styles.chip, active && styles.chipActive]}
+                      onPress={() => setForm((s) => ({ ...s, estado }))}
+                    >
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                        {estado}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+            <Button
+              title={editingVehicle ? "Actualizar" : "Guardar"}
+              onPress={handleSubmit}
+              loading={loading}
+            />
+          </Card>
+
+          <View style={styles.listHeader}>
+            <Text style={styles.sectionTitle}>Listado</Text>
           </View>
-        ))}
-      </Card>
-    </ScrollView>
+        </>
+      }
+      ListEmptyComponent={
+        <Card>
+          <Text style={styles.muted}>No hay vehiculos registrados.</Text>
+        </Card>
+      }
+    />
   );
 }
 
@@ -285,8 +308,31 @@ const getStyles = (colors: ThemeColors) =>
       alignItems: "center",
       gap: 10,
       paddingVertical: 10,
+    },
+    listItem: {
+      backgroundColor: colors.surface,
+      borderLeftWidth: 1,
+      borderRightWidth: 1,
+      borderColor: colors.border,
+    },
+    listItemFirst: {
+      borderTopWidth: 1,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      overflow: "hidden",
+    },
+    listItemLast: {
+      borderBottomWidth: 1,
+      borderBottomLeftRadius: 16,
+      borderBottomRightRadius: 16,
+      overflow: "hidden",
+    },
+    itemDivider: {
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
+    },
+    listHeader: {
+      paddingVertical: 4,
     },
     icon: {
       width: 34,

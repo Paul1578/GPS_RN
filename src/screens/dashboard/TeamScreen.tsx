@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  FlatList,
   ScrollView,
   StyleSheet,
   Switch,
@@ -15,6 +16,7 @@ import { useAuth, UserPermissions, UserRole } from "@/context/AuthContext";
 import { useFleet } from "@/context/FleetContext";
 import { notify, notifyError } from "@/utils/notify";
 import { useThemeColors, type ThemeColors } from "@/theme/colors";
+import { formatVehicleLabel } from "@/utils/formatVehicleLabel";
 
 const roles: { id: UserRole; label: string }[] = [
   { id: "superadmin", label: "Super Admin" },
@@ -55,7 +57,7 @@ export function TeamScreen() {
     unassignVehicleFromDriver,
   } = useFleet();
   const colors = useThemeColors();
-  const styles = getStyles(colors);
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [showCreateDriver, setShowCreateDriver] = useState(false);
@@ -218,6 +220,103 @@ export function TeamScreen() {
     notifyError(result.message ?? "No se pudo crear el chofer");
   };
 
+  const driverCount = drivers.length;
+  const renderDriver = ({
+    item,
+    index,
+  }: {
+    item: (typeof drivers)[number];
+    index: number;
+  }) => {
+    const assignedVehicle = vehicles.find((v) => v.id === item.vehicleId);
+    const availableList = assignedVehicle
+      ? [assignedVehicle, ...availableVehicles.filter((v) => v.id !== assignedVehicle.id)]
+      : availableVehicles;
+    const isFirst = index === 0;
+    const isLast = index === driverCount - 1;
+    return (
+      <View
+        style={[
+          styles.listItem,
+          isFirst && styles.listItemFirst,
+          isLast && styles.listItemLast,
+        ]}
+      >
+        <View style={[styles.driverItem, !isLast && styles.itemDivider]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.name}>
+              {item.firstName} {item.lastName}
+            </Text>
+            <Text style={styles.muted}>Documento: {item.documentNumber}</Text>
+            <Text style={styles.muted}>Teléfono: {item.phoneNumber}</Text>
+            <View style={styles.badgeRow}>
+              <View style={styles.badge}>
+                <Truck color={colors.primary} size={14} />
+                <Text style={styles.badgeText}>
+                  {assignedVehicle
+                    ? `Vehículo: ${formatVehicleLabel(assignedVehicle)}`
+                    : "Sin vehículo"}
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View style={{ gap: 8, alignItems: "flex-end" }}>
+            {availableList.length > 0 && (
+              <View style={styles.selectorRow}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {availableList.map((veh) => {
+                    const active = (assignSelection[item.id] ?? item.vehicleId) === veh.id;
+                    return (
+                      <TouchableOpacity
+                        key={veh.id}
+                        style={[styles.roleChip, active && styles.roleChipActive]}
+                        onPress={() =>
+                          setAssignSelection((prev) => ({ ...prev, [item.id]: veh.id }))
+                        }
+                      >
+                        <Text style={[styles.roleText, active && styles.roleTextActive]}>
+                          {formatVehicleLabel(veh)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+            <View style={styles.driverActions}>
+              <Button
+                title="Asignar"
+                onPress={async () => {
+                  const vehicleId = assignSelection[item.id] ?? item.vehicleId;
+                  if (!vehicleId) {
+                    notifyError("Selecciona un vehículo");
+                    return;
+                  }
+                  const result = await assignVehicleToDriver(item.id, vehicleId);
+                  if (!result.ok) {
+                    notifyError(result.message ?? "No se pudo asignar vehículo");
+                  }
+                }}
+              />
+              {item.vehicleId && (
+                <Button
+                  title="Desasignar"
+                  variant="secondary"
+                  onPress={async () => {
+                    const result = await unassignVehicleFromDriver(item.id);
+                    if (!result.ok) {
+                      notifyError(result.message ?? "No se pudo desasignar vehículo");
+                    }
+                  }}
+                />
+              )}
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
   if (!canManageTeam) {
     return (
       <ScrollView
@@ -235,332 +334,285 @@ export function TeamScreen() {
   }
 
   return (
-    <ScrollView
+    <FlatList
+      data={drivers}
+      keyExtractor={(item) => item.id}
+      renderItem={renderDriver}
       style={{ flex: 1, backgroundColor: colors.background }}
       contentContainerStyle={{ padding: 16, gap: 14 }}
-    >
-      <Text style={styles.title}>Equipo</Text>
+      initialNumToRender={8}
+      windowSize={7}
+      removeClippedSubviews
+      ListHeaderComponent={
+        <>
+          <Text style={styles.title}>Equipo</Text>
 
-      <Card>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.subtitle}>Miembros</Text>
-          <TouchableOpacity
-            style={styles.actionChip}
-            onPress={() => setShowCreateUser((prev) => !prev)}
-          >
-            {showCreateUser ? <X color={colors.primary} size={16} /> : <Plus color={colors.primary} size={16} />}
-            <Text style={styles.actionChipText}>
-              {showCreateUser ? "Ocultar" : "Nuevo usuario"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {showCreateUser && (
-          <View style={styles.formCard}>
-            <TextField
-              label="Nombres"
-              value={createUserForm.nombres}
-              onChangeText={(v) => setCreateUserForm((s) => ({ ...s, nombres: v }))}
-            />
-            <TextField
-              label="Apellidos"
-              value={createUserForm.apellidos}
-              onChangeText={(v) => setCreateUserForm((s) => ({ ...s, apellidos: v }))}
-            />
-            <TextField
-              label="Usuario"
-              value={createUserForm.usuario}
-              onChangeText={(v) => setCreateUserForm((s) => ({ ...s, usuario: v }))}
-              autoCapitalize="none"
-            />
-            <TextField
-              label="Correo"
-              value={createUserForm.email}
-              onChangeText={(v) => setCreateUserForm((s) => ({ ...s, email: v }))}
-              autoCapitalize="none"
-              keyboardType="email-address"
-            />
-            <View style={styles.selectorRow}>
-              <Text style={styles.label}>Rol</Text>
-              <View style={styles.roleRow}>
-                {roles.map((role) => {
-                  const active = role.id === createUserForm.role;
-                  return (
-                    <TouchableOpacity
-                      key={role.id}
-                      style={[styles.roleChip, active && styles.roleChipActive]}
-                      onPress={() => setCreateUserForm((s) => ({ ...s, role: role.id }))}
-                    >
-                      <Text style={[styles.roleText, active && styles.roleTextActive]}>
-                        {role.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-            {createUserForm.role === "chofer" && (
-              <>
-                <TextField
-                  label="Documento"
-                  value={createUserForm.documentNumber}
-                  onChangeText={(v) => setCreateUserForm((s) => ({ ...s, documentNumber: v }))}
-                />
-                <TextField
-                  label="Teléfono"
-                  value={createUserForm.phoneNumber}
-                  onChangeText={(v) => setCreateUserForm((s) => ({ ...s, phoneNumber: v }))}
-                />
-              </>
-            )}
-            <Button title="Crear usuario" onPress={handleCreateUser} />
-          </View>
-        )}
-
-        {team.length === 0 && <Text style={styles.muted}>No hay usuarios aún.</Text>}
-        {team.map((member) => {
-          const role = roles.find((r) => r.id === member.role);
-          const isEditingPermissions = editingPermissionsUserId === member.id;
-          return (
-            <View key={member.id} style={styles.item}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.name}>
-                  {member.nombres} {member.apellidos}
+          <Card>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.subtitle}>Miembros</Text>
+              <TouchableOpacity
+                style={styles.actionChip}
+                onPress={() => setShowCreateUser((prev) => !prev)}
+              >
+                {showCreateUser ? (
+                  <X color={colors.primary} size={16} />
+                ) : (
+                  <Plus color={colors.primary} size={16} />
+                )}
+                <Text style={styles.actionChipText}>
+                  {showCreateUser ? "Ocultar" : "Nuevo usuario"}
                 </Text>
-                <Text style={styles.muted}>{member.usuario}</Text>
-                <View style={styles.row}>
-                  <View style={styles.badge}>
-                    <Shield color={colors.primary} size={14} />
-                    <Text style={styles.badgeText}>{role?.label ?? member.role}</Text>
-                  </View>
-                  <View style={styles.badge}>
-                    {member.isActive ? (
-                      <UserCheck color="#16a34a" size={14} />
-                    ) : (
-                      <UserMinus color="#b91c1c" size={14} />
-                    )}
-                    <Text
-                      style={[
-                        styles.badgeText,
-                        { color: member.isActive ? "#16a34a" : "#b91c1c" },
-                      ]}
-                    >
-                      {member.isActive ? "Activo" : "Inactivo"}
-                    </Text>
-                  </View>
-                </View>
-              </View>
+              </TouchableOpacity>
+            </View>
 
-              <View style={{ alignItems: "flex-end", gap: 8 }}>
-                {isSuperAdmin() && (
+            {showCreateUser && (
+              <View style={styles.formCard}>
+                <TextField
+                  label="Nombres"
+                  value={createUserForm.nombres}
+                  onChangeText={(v) => setCreateUserForm((s) => ({ ...s, nombres: v }))}
+                />
+                <TextField
+                  label="Apellidos"
+                  value={createUserForm.apellidos}
+                  onChangeText={(v) => setCreateUserForm((s) => ({ ...s, apellidos: v }))}
+                />
+                <TextField
+                  label="Usuario"
+                  value={createUserForm.usuario}
+                  onChangeText={(v) => setCreateUserForm((s) => ({ ...s, usuario: v }))}
+                  autoCapitalize="none"
+                />
+                <TextField
+                  label="Correo"
+                  value={createUserForm.email}
+                  onChangeText={(v) => setCreateUserForm((s) => ({ ...s, email: v }))}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                />
+                <View style={styles.selectorRow}>
+                  <Text style={styles.label}>Rol</Text>
                   <View style={styles.roleRow}>
-                    {roles.map((r) => {
-                      const active = r.id === member.role;
+                    {roles.map((role) => {
+                      const active = role.id === createUserForm.role;
                       return (
                         <TouchableOpacity
-                          key={r.id}
+                          key={role.id}
                           style={[styles.roleChip, active && styles.roleChipActive]}
-                          onPress={() => handleRoleChange(member.id, r.id)}
-                          disabled={loadingId === member.id}
+                          onPress={() => setCreateUserForm((s) => ({ ...s, role: role.id }))}
                         >
                           <Text style={[styles.roleText, active && styles.roleTextActive]}>
-                            {r.label}
+                            {role.label}
                           </Text>
                         </TouchableOpacity>
                       );
                     })}
                   </View>
-                )}
-                <View style={styles.switchRow}>
-                  <Text style={styles.muted}>Activo</Text>
-                  <Switch
-                    value={member.isActive ?? true}
-                    onValueChange={(value) => handleStatusChange(member.id, value)}
-                  />
                 </View>
-                {isSuperAdmin() && (
-                  <TouchableOpacity
-                    style={styles.permissionButton}
-                    onPress={() =>
-                      isEditingPermissions
-                        ? setEditingPermissionsUserId(null)
-                        : handleEditPermissions(member.id)
-                    }
-                  >
-                    <Text style={styles.permissionText}>
-                      {isEditingPermissions ? "Cerrar permisos" : "Permisos"}
-                    </Text>
-                  </TouchableOpacity>
+                {createUserForm.role === "chofer" && (
+                  <>
+                    <TextField
+                      label="Documento"
+                      value={createUserForm.documentNumber}
+                      onChangeText={(v) =>
+                        setCreateUserForm((s) => ({ ...s, documentNumber: v }))
+                      }
+                    />
+                    <TextField
+                      label="Teléfono"
+                      value={createUserForm.phoneNumber}
+                      onChangeText={(v) =>
+                        setCreateUserForm((s) => ({ ...s, phoneNumber: v }))
+                      }
+                    />
+                  </>
                 )}
+                <Button title="Crear usuario" onPress={handleCreateUser} />
               </View>
+            )}
 
-              {isEditingPermissions && (
-                <View style={styles.permissionsBox}>
-                  {(Object.keys(permissionLabels) as Array<keyof UserPermissions>).map((key) => (
-                    <View key={key} style={styles.permissionRow}>
-                      <Text style={styles.permissionLabel}>{permissionLabels[key]}</Text>
+            {team.length === 0 && <Text style={styles.muted}>No hay usuarios aún.</Text>}
+            {team.map((member) => {
+              const role = roles.find((r) => r.id === member.role);
+              const isEditingPermissions = editingPermissionsUserId === member.id;
+              return (
+                <View key={member.id} style={styles.item}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.name}>
+                      {member.nombres} {member.apellidos}
+                    </Text>
+                    <Text style={styles.muted}>{member.usuario}</Text>
+                    <View style={styles.row}>
+                      <View style={styles.badge}>
+                        <Shield color={colors.primary} size={14} />
+                        <Text style={styles.badgeText}>{role?.label ?? member.role}</Text>
+                      </View>
+                      <View style={styles.badge}>
+                        {member.isActive ? (
+                          <UserCheck color="#16a34a" size={14} />
+                        ) : (
+                          <UserMinus color="#b91c1c" size={14} />
+                        )}
+                        <Text
+                          style={[
+                            styles.badgeText,
+                            { color: member.isActive ? "#16a34a" : "#b91c1c" },
+                          ]}
+                        >
+                          {member.isActive ? "Activo" : "Inactivo"}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={{ alignItems: "flex-end", gap: 8 }}>
+                    {isSuperAdmin() && (
+                      <View style={styles.roleRow}>
+                        {roles.map((r) => {
+                          const active = r.id === member.role;
+                          return (
+                            <TouchableOpacity
+                              key={r.id}
+                              style={[styles.roleChip, active && styles.roleChipActive]}
+                              onPress={() => handleRoleChange(member.id, r.id)}
+                              disabled={loadingId === member.id}
+                            >
+                              <Text style={[styles.roleText, active && styles.roleTextActive]}>
+                                {r.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
+                    <View style={styles.switchRow}>
+                      <Text style={styles.muted}>Activo</Text>
                       <Switch
-                        value={permissionsForm[key] ?? false}
-                        onValueChange={(value) =>
-                          setPermissionsForm((prev) => ({ ...prev, [key]: value }))
-                        }
+                        value={member.isActive ?? true}
+                        onValueChange={(value) => handleStatusChange(member.id, value)}
                       />
                     </View>
-                  ))}
-                  <Button title="Guardar permisos" onPress={handleSavePermissions} />
-                </View>
-              )}
-            </View>
-          );
-        })}
-      </Card>
-
-      <Card>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.subtitle}>Choferes</Text>
-          <TouchableOpacity
-            style={styles.actionChip}
-            onPress={() => setShowCreateDriver((prev) => !prev)}
-          >
-            {showCreateDriver ? <X color={colors.primary} size={16} /> : <Plus color={colors.primary} size={16} />}
-            <Text style={styles.actionChipText}>
-              {showCreateDriver ? "Ocultar" : "Nuevo chofer"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {showCreateDriver && (
-          <View style={styles.formCard}>
-            <View style={styles.selectorRow}>
-              <Text style={styles.label}>Usuario (chofer)</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {choferUsers.map((userItem) => {
-                  const active = userItem.id === createDriverForm.userId;
-                  return (
-                    <TouchableOpacity
-                      key={userItem.id}
-                      style={[styles.roleChip, active && styles.roleChipActive]}
-                      onPress={() =>
-                        setCreateDriverForm((s) => ({
-                          ...s,
-                          userId: userItem.id,
-                          firstName: userItem.nombres,
-                          lastName: userItem.apellidos,
-                        }))
-                      }
-                    >
-                      <Text style={[styles.roleText, active && styles.roleTextActive]}>
-                        {userItem.nombres} {userItem.apellidos}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-            <TextField
-              label="Nombres"
-              value={createDriverForm.firstName}
-              onChangeText={(v) => setCreateDriverForm((s) => ({ ...s, firstName: v }))}
-            />
-            <TextField
-              label="Apellidos"
-              value={createDriverForm.lastName}
-              onChangeText={(v) => setCreateDriverForm((s) => ({ ...s, lastName: v }))}
-            />
-            <TextField
-              label="Documento"
-              value={createDriverForm.documentNumber}
-              onChangeText={(v) => setCreateDriverForm((s) => ({ ...s, documentNumber: v }))}
-            />
-            <TextField
-              label="Teléfono"
-              value={createDriverForm.phoneNumber}
-              onChangeText={(v) => setCreateDriverForm((s) => ({ ...s, phoneNumber: v }))}
-            />
-            <Button title="Crear chofer" onPress={handleCreateDriver} />
-          </View>
-        )}
-
-        {drivers.length === 0 && <Text style={styles.muted}>No hay choferes registrados.</Text>}
-        {drivers.map((driver) => {
-          const assignedVehicle = vehicles.find((v) => v.id === driver.vehicleId);
-          const availableList = assignedVehicle
-            ? [assignedVehicle, ...availableVehicles.filter((v) => v.id !== assignedVehicle.id)]
-            : availableVehicles;
-          return (
-            <View key={driver.id} style={styles.driverItem}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.name}>
-                  {driver.firstName} {driver.lastName}
-                </Text>
-                <Text style={styles.muted}>Documento: {driver.documentNumber}</Text>
-                <Text style={styles.muted}>Teléfono: {driver.phoneNumber}</Text>
-                <View style={styles.badgeRow}>
-                  <View style={styles.badge}>
-                    <Truck color={colors.primary} size={14} />
-                    <Text style={styles.badgeText}>
-                      {assignedVehicle ? `Vehículo: ${assignedVehicle.placa}` : "Sin vehículo"}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-              <View style={{ gap: 8, alignItems: "flex-end" }}>
-                {availableList.length > 0 && (
-                  <View style={styles.selectorRow}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      {availableList.map((veh) => {
-                        const active = (assignSelection[driver.id] ?? driver.vehicleId) === veh.id;
-                        return (
-                          <TouchableOpacity
-                            key={veh.id}
-                            style={[styles.roleChip, active && styles.roleChipActive]}
-                            onPress={() =>
-                              setAssignSelection((prev) => ({ ...prev, [driver.id]: veh.id }))
-                            }
-                          >
-                            <Text style={[styles.roleText, active && styles.roleTextActive]}>
-                              {veh.placa}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                )}
-                <View style={styles.driverActions}>
-                  <Button
-                    title="Asignar"
-                    onPress={async () => {
-                      const vehicleId = assignSelection[driver.id] ?? driver.vehicleId;
-                      if (!vehicleId) {
-                        notifyError("Selecciona un vehículo");
-                        return;
-                      }
-                      const result = await assignVehicleToDriver(driver.id, vehicleId);
-                      if (!result.ok) {
-                        notifyError(result.message ?? "No se pudo asignar vehículo");
-                      }
-                    }}
-                  />
-                  {driver.vehicleId && (
-                    <Button
-                      title="Desasignar"
-                      variant="secondary"
-                      onPress={async () => {
-                        const result = await unassignVehicleFromDriver(driver.id);
-                        if (!result.ok) {
-                          notifyError(result.message ?? "No se pudo desasignar vehículo");
+                    {isSuperAdmin() && (
+                      <TouchableOpacity
+                        style={styles.permissionButton}
+                        onPress={() =>
+                          isEditingPermissions
+                            ? setEditingPermissionsUserId(null)
+                            : handleEditPermissions(member.id)
                         }
-                      }}
-                    />
+                      >
+                        <Text style={styles.permissionText}>
+                          {isEditingPermissions ? "Cerrar permisos" : "Permisos"}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {isEditingPermissions && (
+                    <View style={styles.permissionsBox}>
+                      {(Object.keys(permissionLabels) as Array<keyof UserPermissions>).map(
+                        (key) => (
+                          <View key={key} style={styles.permissionRow}>
+                            <Text style={styles.permissionLabel}>{permissionLabels[key]}</Text>
+                            <Switch
+                              value={permissionsForm[key] ?? false}
+                              onValueChange={(value) =>
+                                setPermissionsForm((prev) => ({ ...prev, [key]: value }))
+                              }
+                            />
+                          </View>
+                        )
+                      )}
+                      <Button title="Guardar permisos" onPress={handleSavePermissions} />
+                    </View>
                   )}
                 </View>
+              );
+            })}
+          </Card>
+
+          <View style={styles.listHeader}>
+            <Text style={styles.subtitle}>Choferes</Text>
+            <TouchableOpacity
+              style={styles.actionChip}
+              onPress={() => setShowCreateDriver((prev) => !prev)}
+            >
+              {showCreateDriver ? (
+                <X color={colors.primary} size={16} />
+              ) : (
+                <Plus color={colors.primary} size={16} />
+              )}
+              <Text style={styles.actionChipText}>
+                {showCreateDriver ? "Ocultar" : "Nuevo chofer"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {showCreateDriver && (
+            <Card>
+              <View style={styles.formCard}>
+                <View style={styles.selectorRow}>
+                  <Text style={styles.label}>Usuario (chofer)</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {choferUsers.map((userItem) => {
+                      const active = userItem.id === createDriverForm.userId;
+                      return (
+                        <TouchableOpacity
+                          key={userItem.id}
+                          style={[styles.roleChip, active && styles.roleChipActive]}
+                          onPress={() =>
+                            setCreateDriverForm((s) => ({
+                              ...s,
+                              userId: userItem.id,
+                              firstName: userItem.nombres,
+                              lastName: userItem.apellidos,
+                            }))
+                          }
+                        >
+                          <Text style={[styles.roleText, active && styles.roleTextActive]}>
+                            {userItem.nombres} {userItem.apellidos}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+                <TextField
+                  label="Nombres"
+                  value={createDriverForm.firstName}
+                  onChangeText={(v) => setCreateDriverForm((s) => ({ ...s, firstName: v }))}
+                />
+                <TextField
+                  label="Apellidos"
+                  value={createDriverForm.lastName}
+                  onChangeText={(v) => setCreateDriverForm((s) => ({ ...s, lastName: v }))}
+                />
+                <TextField
+                  label="Documento"
+                  value={createDriverForm.documentNumber}
+                  onChangeText={(v) =>
+                    setCreateDriverForm((s) => ({ ...s, documentNumber: v }))
+                  }
+                />
+                <TextField
+                  label="Teléfono"
+                  value={createDriverForm.phoneNumber}
+                  onChangeText={(v) =>
+                    setCreateDriverForm((s) => ({ ...s, phoneNumber: v }))
+                  }
+                />
+                <Button title="Crear chofer" onPress={handleCreateDriver} />
               </View>
-            </View>
-          );
-        })}
-      </Card>
-    </ScrollView>
+            </Card>
+          )}
+        </>
+      }
+      ListEmptyComponent={
+        <Card>
+          <Text style={styles.muted}>No hay choferes registrados.</Text>
+        </Card>
+      }
+    />
   );
 }
 
@@ -719,9 +771,35 @@ const getStyles = (colors: ThemeColors) =>
       justifyContent: "space-between",
       gap: 12,
       paddingVertical: 12,
+      flexWrap: "wrap",
+    },
+    listItem: {
+      backgroundColor: colors.surface,
+      borderLeftWidth: 1,
+      borderRightWidth: 1,
+      borderColor: colors.border,
+    },
+    listItemFirst: {
+      borderTopWidth: 1,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      overflow: "hidden",
+    },
+    listItemLast: {
+      borderBottomWidth: 1,
+      borderBottomLeftRadius: 16,
+      borderBottomRightRadius: 16,
+      overflow: "hidden",
+    },
+    itemDivider: {
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
-      flexWrap: "wrap",
+    },
+    listHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingVertical: 4,
     },
     driverActions: {
       gap: 8,

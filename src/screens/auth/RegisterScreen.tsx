@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Button } from "@/components/common/Button";
@@ -11,7 +11,7 @@ export function RegisterScreen() {
   const navigation = useNavigation<any>();
   const { register } = useAuth();
   const colors = useThemeColors();
-  const styles = getStyles(colors);
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const [form, setForm] = useState({
     nombres: "",
     apellidos: "",

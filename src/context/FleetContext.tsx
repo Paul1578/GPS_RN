@@ -83,6 +83,11 @@ interface FleetContextType {
     vehicleId: string,
     location: { lat: number; lng: number }
   ) => Promise<ActionResult>;
+  registerRoutePosition: (
+    routeId: string,
+    location: { lat: number; lng: number },
+    meta?: { recordedAt?: string; speedKmh?: number; heading?: number }
+  ) => Promise<ActionResult>;
   addRouteEvidence: (
     routeId: string,
     evidence: Omit<RouteEvidence, "id" | "timestamp">
@@ -200,6 +205,17 @@ const stateToApiStatusNumber = (estado?: Route["estado"]): number => {
   return 0;
 };
 
+const normalizeIsActive = (value: unknown): boolean => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const lower = value.trim().toLowerCase();
+    if (["false", "0", "no"].includes(lower)) return false;
+    if (["true", "1", "yes"].includes(lower)) return true;
+  }
+  return true;
+};
+
 const mapApiVehicle = (apiVehicle: ApiVehicle): Vehicle => ({
   id: apiVehicle.id,
   placa: apiVehicle.plate,
@@ -208,7 +224,7 @@ const mapApiVehicle = (apiVehicle: ApiVehicle): Vehicle => ({
   anio: apiVehicle.year,
   descripcion: apiVehicle.description ?? undefined,
   estado: statusNumberToState(apiVehicle.status),
-  isActive: apiVehicle.isActive,
+  isActive: normalizeIsActive(apiVehicle.isActive),
 });
 
 const mapApiRoute = (apiRoute: ApiRoute): Route => {
@@ -259,7 +275,7 @@ const mapApiRoute = (apiRoute: ApiRoute): Route => {
     fechaCreacion: apiRoute.plannedStart ?? new Date().toISOString(),
     fechaInicio: apiRoute.plannedStart,
     fechaFin: apiRoute.plannedEnd,
-    isActive: apiRoute.isActive,
+    isActive: normalizeIsActive(apiRoute.isActive),
   };
 };
 
@@ -269,7 +285,7 @@ const mapApiDriver = (apiDriver: ApiDriver): Driver => ({
   lastName: apiDriver.lastName,
   documentNumber: apiDriver.documentNumber,
   phoneNumber: apiDriver.phoneNumber,
-  isActive: apiDriver.isActive,
+  isActive: normalizeIsActive(apiDriver.isActive),
   vehicleId: apiDriver.vehicleId,
   userId: apiDriver.userId,
 });
@@ -332,22 +348,23 @@ const generateId = () => {
 };
 
 export function FleetProvider({ children }: { children: ReactNode }) {
-  const { apiFetch, isAuthenticated, isLoadingUser } = useAuth();
+  const { apiFetch, isAuthenticated, isLoadingUser, user } = useAuth();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
 
   const refreshVehicles = async () => {
     if (!apiFetch) return;
+    if (user?.role === "chofer") return;
     const data = await fetchVehicles(apiFetch);
-    const active = data.filter((v) => (v as any).isActive !== false);
+    const active = data.filter((v) => normalizeIsActive((v as any).isActive));
     setVehicles(active.map(mapApiVehicle));
   };
 
   const refreshRoutes = async () => {
     if (!apiFetch) return;
     const data = await fetchRoutes(apiFetch);
-    const active = data.filter((r) => (r as any).isActive !== false);
+    const active = data.filter((r) => normalizeIsActive((r as any).isActive));
 
     setRoutes((prev) => {
       const prevMap = new Map(prev.map((r) => [r.id, r]));
@@ -361,9 +378,10 @@ export function FleetProvider({ children }: { children: ReactNode }) {
 
   const refreshDrivers = async (onlyActive = true) => {
     if (!apiFetch) return;
+    if (user?.role === "chofer") return;
     const query = onlyActive ? "?onlyActive=true" : "";
     const data = await apiFetch<ApiDriver[]>(`/Drivers${query}`);
-    const active = data.filter((d) => (d as any).isActive !== false);
+    const active = data.filter((d) => normalizeIsActive((d as any).isActive));
     setDrivers(active.map(mapApiDriver));
   };
 
@@ -377,7 +395,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
       }
     };
     void loadVehicles();
-  }, [apiFetch, isAuthenticated, isLoadingUser]);
+  }, [apiFetch, isAuthenticated, isLoadingUser, user?.role]);
 
   useEffect(() => {
     const loadRoutes = async () => {
@@ -389,7 +407,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
       }
     };
     void loadRoutes();
-  }, [apiFetch, isAuthenticated, isLoadingUser]);
+  }, [apiFetch, isAuthenticated, isLoadingUser, user?.role]);
 
   useEffect(() => {
     const loadDrivers = async () => {
@@ -401,7 +419,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
       }
     };
     void loadDrivers();
-  }, [apiFetch, isAuthenticated, isLoadingUser]);
+  }, [apiFetch, isAuthenticated, isLoadingUser, user?.role]);
 
   const addVehicle = async (
     vehicle: Omit<Vehicle, "id">
@@ -624,6 +642,14 @@ export function FleetProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify(payload),
       });
 
+      const statusChanged = current.estado !== merged.estado;
+      if (statusChanged && merged.estado) {
+        await apiFetch<void>(`/Routes/${id}/status`, {
+          method: "PUT",
+          body: JSON.stringify({ status: stateToApiStatusNumber(merged.estado) }),
+        });
+      }
+
       await linkDriverVehicle(merged.conductorId, merged.vehiculoId);
       const finished =
         typeof merged.estado === "string" &&
@@ -682,6 +708,35 @@ export function FleetProvider({ children }: { children: ReactNode }) {
         message: resolveApiMessage(
           error,
           "No se pudo actualizar la ubicacion del vehiculo"
+        ),
+      };
+    }
+  };
+
+  const registerRoutePosition = async (
+    routeId: string,
+    location: { lat: number; lng: number },
+    meta?: { recordedAt?: string; speedKmh?: number; heading?: number }
+  ): Promise<ActionResult> => {
+    try {
+      await apiFetch(`/Routes/${routeId}/positions`, {
+        method: "POST",
+        body: JSON.stringify({
+          latitude: location.lat,
+          longitude: location.lng,
+          recordedAt: meta?.recordedAt,
+          speedKmh: meta?.speedKmh,
+          heading: meta?.heading,
+        }),
+      });
+      return { ok: true };
+    } catch (error) {
+      console.warn("No se pudo registrar tracking en backend:", error);
+      return {
+        ok: false,
+        message: resolveApiMessage(
+          error,
+          "No se pudo registrar el tracking de la ruta"
         ),
       };
     }
@@ -782,6 +837,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
         updateRoute,
         deleteRoute,
         updateVehicleLocation,
+        registerRoutePosition,
         addRouteEvidence,
         getRoutesByDriver,
         getTeamVehicles,

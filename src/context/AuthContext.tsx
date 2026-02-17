@@ -11,7 +11,7 @@ import { decode as atob } from "base-64";
 import { notify, notifyError } from "@/utils/notify";
 
 const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://organize-aspects-sql-sing.trycloudflare.com/api";
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://camping-again-breath-meal.trycloudflare.com/api";
 const TOKEN_STORAGE_KEY = "auth_tokens";
 const CURRENT_USER_STORAGE_KEY = "currentUser";
 
@@ -254,13 +254,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && user?.role !== "chofer") {
       void refreshTeamUsers();
     } else {
       setTeamUsers([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user?.role]);
 
   const buildApiError = async (response: Response) => {
     let data: ApiErrorPayload | null = null;

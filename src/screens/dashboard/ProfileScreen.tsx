@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { StyleSheet, Text, View, Switch, ScrollView } from "react-native";
 import { Shield, UserCircle, Lock, Moon } from "lucide-react-native";
 import { Card } from "@/components/common/Card";
@@ -12,7 +12,7 @@ export function ProfileScreen() {
   const { user, logout, logoutAll, changePassword } = useAuth();
   const { preference, setPreference } = useTheme();
   const colors = useThemeColors();
-  const styles = getStyles(colors);
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");

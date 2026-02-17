@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { CalendarClock, Route, Truck, Users } from "lucide-react-native";
@@ -12,7 +13,7 @@ export function DashboardScreen() {
   const { user } = useAuth();
   const { routes, vehicles } = useFleet();
   const colors = useThemeColors();
-  const styles = getStyles(colors);
+  const styles = useMemo(() => getStyles(colors), [colors]);
 
   const permissions = user?.permissions;
   const canViewHistory = !!permissions?.canViewMap || !!permissions?.canCreateRoutes;

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import {
@@ -25,7 +26,7 @@ export function WelcomeScreen() {
   const { width } = useWindowDimensions();
   const { scheme } = useTheme();
   const colors = useThemeColors();
-  const styles = getStyles(colors);
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const isNarrow = width < 360;
   const isWide = width >= 720;
 
