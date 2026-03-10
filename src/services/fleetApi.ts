@@ -103,14 +103,18 @@ export const fetchRoutePositions = (
   apiFetch: ApiFetcher,
   routeId: string,
   from?: string,
-  to?: string
+  to?: string,
+  options?: ApiRequestOptions
 ): Promise<RoutePositionApiDto[]> => {
   const query = buildQueryString({
     from,
     to,
   });
 
-  return apiFetch<RoutePositionApiDto[]>(`/Routes/${routeId}/positions${query}`);
+  return apiFetch<RoutePositionApiDto[]>(
+    `/Routes/${routeId}/positions${query}`,
+    options
+  );
 };
 
 export const fetchVehicles = (apiFetch: ApiFetcher): Promise<VehicleApiDto[]> => {

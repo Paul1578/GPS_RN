@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   PermissionsAndroid,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import {
@@ -16,26 +19,26 @@ import {
   ShapeSource,
   UserLocation,
 } from "@maplibre/maplibre-react-native";
-import { MapPin, Package, Timer, Truck } from "lucide-react-native";
+import { MapPin, Package, Timer, Truck, Maximize2, Minimize2, X } from "lucide-react-native";
 import { Card } from "@/components/common/Card";
 import { useAuth } from "@/context/AuthContext";
 import { useFleet } from "@/context/FleetContext";
 import { useThemeColors, type ThemeColors } from "@/theme/colors";
+import {
+  getMapStyleObject,
+  loadMapViewOptions,
+  MAP_LAYOUT_CONFIG,
+} from "@/utils/mapRuntimeConfig";
+import {
+  buildLineFeatureFromLatLng,
+  computeBoundsFromLngLat,
+  parseCoord,
+  toLngLat,
+  type LatLngTuple,
+  type LineFeature,
+} from "@/utils/mapGeometry";
 
-type LatLngTuple = [number, number];
-
-type LineFeature = {
-  type: "Feature";
-  geometry: {
-    type: "LineString";
-    coordinates: number[][];
-  };
-  properties: Record<string, unknown>;
-};
-
-const DEFAULT_CENTER: [number, number] = [-77.0428, -12.0464];
-const DEFAULT_ZOOM = 12;
-const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+const DEFAULT_ZOOM = MAP_LAYOUT_CONFIG.defaultZoom;
 const OSRM_BASE_URL = "https://router.project-osrm.org/route/v1/driving";
 
 export function DriverRouteScreen() {
@@ -53,8 +56,24 @@ export function DriverRouteScreen() {
   );
   const [userCoord, setUserCoord] = useState<[number, number] | null>(null);
   const [autoCameraEnabled, setAutoCameraEnabled] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mapStyle, setMapStyle] = useState<any>(() => getMapStyleObject("osm_light"));
+  const { height: screenHeight } = useWindowDimensions();
   const lastTrackingRef = useRef(0);
   const osrmAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadStyle = async () => {
+      const options = await loadMapViewOptions();
+      if (!mounted) return;
+      setMapStyle(getMapStyleObject(options.baseMapStyle));
+    };
+    void loadStyle();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -69,10 +88,17 @@ export function DriverRouteScreen() {
   }, [drivers, user]);
 
   const routes = useMemo(() => {
-    if (user?.role === "chofer") return allRoutes;
     if (!driverId) return [];
+    if (user?.role === "chofer") {
+      return allRoutes.filter(
+        (route) =>
+          route.conductorId === driverId ||
+          route.conductorId === user.id ||
+          route.conductorId === user.driverId
+      );
+    }
     return getRoutesByDriver(driverId);
-  }, [allRoutes, driverId, getRoutesByDriver, user?.role]);
+  }, [allRoutes, driverId, getRoutesByDriver, user?.driverId, user?.id, user?.role]);
 
   const activeRoute = useMemo(
     () => routes.find((r) => r.estado === "en_progreso" || r.estado === "pendiente") ?? null,
@@ -115,37 +141,18 @@ export function DriverRouteScreen() {
     return coords;
   }, [activeRoute]);
 
-  const sanitizeCoords = (coords: unknown): number[][] => {
+  const sanitizeCoords = (coords: unknown): Array<[number, number]> => {
     if (!Array.isArray(coords)) return [];
     return coords
       .map((pair) => {
         if (!Array.isArray(pair) || pair.length < 2) return null;
-        const lng = Number(pair[0]);
-        const lat = Number(pair[1]);
-        if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+        const lng = parseCoord(pair[0]);
+        const lat = parseCoord(pair[1]);
+        if (lng === null || lat === null) return null;
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
         return [lng, lat] as [number, number];
       })
       .filter((pair): pair is [number, number] => !!pair);
-  };
-
-  const computeBounds = (coords: number[][]) => {
-    if (coords.length < 2) return null;
-    let minLng = coords[0][0];
-    let maxLng = coords[0][0];
-    let minLat = coords[0][1];
-    let maxLat = coords[0][1];
-    coords.forEach(([lng, lat]) => {
-      if (lng < minLng) minLng = lng;
-      if (lng > maxLng) maxLng = lng;
-      if (lat < minLat) minLat = lat;
-      if (lat > maxLat) maxLat = lat;
-    });
-    if (!Number.isFinite(minLng) || !Number.isFinite(minLat)) return null;
-    return {
-      ne: [maxLng, maxLat] as [number, number],
-      sw: [minLng, minLat] as [number, number],
-    };
   };
 
   useEffect(() => {
@@ -219,29 +226,21 @@ export function DriverRouteScreen() {
   }, [activeRoute]);
 
   const straightLineFeature = useMemo<LineFeature | null>(() => {
-    if (pathCoords.length < 2) return null;
-    return {
-      type: "Feature",
-      geometry: {
-        type: "LineString",
-        coordinates: pathCoords.map(([lat, lng]) => [lng, lat]),
-      },
-      properties: {},
-    };
+    return buildLineFeatureFromLatLng(pathCoords);
   }, [pathCoords]);
 
   const routeBounds = useMemo(() => {
     if (routeGeometry?.geometry?.coordinates?.length) {
-      return computeBounds(routeGeometry.geometry.coordinates);
+      return computeBoundsFromLngLat(routeGeometry.geometry.coordinates);
     }
     if (straightLineFeature?.geometry?.coordinates?.length) {
-      return computeBounds(straightLineFeature.geometry.coordinates);
+      return computeBoundsFromLngLat(straightLineFeature.geometry.coordinates);
     }
     return null;
   }, [routeGeometry, straightLineFeature]);
 
   const mapCenter = useMemo<[number, number]>(() => {
-    const base = pathCoords[0] ?? [DEFAULT_CENTER[1], DEFAULT_CENTER[0]];
+    const base = pathCoords[0] ?? [MAP_LAYOUT_CONFIG.defaultCenter[1], MAP_LAYOUT_CONFIG.defaultCenter[0]];
     return [base[1], base[0]];
   }, [pathCoords]);
 
@@ -278,7 +277,7 @@ export function DriverRouteScreen() {
           <View style={styles.mapCard}>
             <MapView
               style={{ flex: 1 }}
-              mapStyle={STYLE_URL}
+              mapStyle={mapStyle}
               logoEnabled
               attributionEnabled
               surfaceView={false}
@@ -383,16 +382,20 @@ export function DriverRouteScreen() {
               ) : null}
 
               {userCoord && (
-                <PointAnnotation
-                  id="driver-location"
-                  coordinate={userCoord}
-                >
+                <PointAnnotation id="driver-location" coordinate={userCoord}>
                   <View style={styles.truckMarker}>
                     <Truck size={16} color="#fff" />
                   </View>
                 </PointAnnotation>
               )}
             </MapView>
+
+            <TouchableOpacity
+              style={styles.fullscreenBtn}
+              onPress={() => setIsFullscreen(true)}
+            >
+              <Maximize2 size={16} color={colors.primaryText} />
+            </TouchableOpacity>
 
             {routeLoading && (
               <View style={styles.loadingBadge} pointerEvents="none">
@@ -440,6 +443,97 @@ export function DriverRouteScreen() {
           </Card>
         </>
       )}
+
+      <Modal
+        visible={isFullscreen}
+        animationType="fade"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setIsFullscreen(false)}
+      >
+        <View style={styles.fullscreenContainer}>
+          <View style={styles.fullscreenHeader}>
+            <Text style={styles.fullscreenTitle}>Mi ruta · mapa</Text>
+            <TouchableOpacity
+              style={styles.fullscreenCloseBtn}
+              onPress={() => setIsFullscreen(false)}
+            >
+              <X color={colors.text} size={18} />
+            </TouchableOpacity>
+          </View>
+          <View style={[styles.mapCard, { height: Math.max(320, screenHeight - 110) }]}>
+            <MapView
+              style={{ flex: 1 }}
+              mapStyle={mapStyle}
+              logoEnabled
+              attributionEnabled
+              surfaceView={false}
+            >
+              <Camera
+                bounds={
+                  routeBounds
+                    ? {
+                        ...routeBounds,
+                        paddingTop: 60,
+                        paddingBottom: 100,
+                        paddingLeft: 60,
+                        paddingRight: 60,
+                      }
+                    : undefined
+                }
+                centerCoordinate={routeBounds ? undefined : userCoord ?? mapCenter}
+                zoomLevel={routeBounds ? undefined : DEFAULT_ZOOM}
+                animationDuration={500}
+              />
+              {pathCoords.map(([lat, lng], idx) => (
+                <PointAnnotation key={`f-p-${idx}`} id={`f-p-${idx}`} coordinate={[lng, lat]}>
+                  <View style={styles.markerDot} />
+                </PointAnnotation>
+              ))}
+              {routeGeometry ? (
+                <ShapeSource id="driverRouteLineFull" shape={routeGeometry}>
+                  <LineLayer
+                    id="driverRouteLineLayerFull"
+                    style={{
+                      lineColor: colors.primary,
+                      lineWidth: 4,
+                      lineOpacity: 0.95,
+                      lineCap: "round",
+                      lineJoin: "round",
+                    }}
+                  />
+                </ShapeSource>
+              ) : routeError && straightLineFeature ? (
+                <ShapeSource id="driverRouteFallbackFull" shape={straightLineFeature}>
+                  <LineLayer
+                    id="driverRouteFallbackLayerFull"
+                    style={{
+                      lineColor: colors.textMuted,
+                      lineWidth: 2.5,
+                      lineOpacity: 0.7,
+                      lineDasharray: [1.5, 1.5],
+                      lineCap: "round",
+                      lineJoin: "round",
+                    }}
+                  />
+                </ShapeSource>
+              ) : null}
+              {userCoord && (
+                <PointAnnotation id="driver-location-full" coordinate={userCoord}>
+                  <View style={styles.truckMarker}>
+                    <Truck size={16} color="#fff" />
+                  </View>
+                </PointAnnotation>
+              )}
+            </MapView>
+            <TouchableOpacity
+              style={styles.fullscreenBtn}
+              onPress={() => setIsFullscreen(false)}
+            >
+              <Minimize2 size={16} color={colors.primaryText} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -517,5 +611,44 @@ const getStyles = (colors: ThemeColors) =>
       color: colors.textMuted,
       fontSize: 12,
       fontWeight: "600",
+    },
+    fullscreenBtn: {
+      position: "absolute",
+      bottom: 12,
+      right: 12,
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: "rgba(148,163,184,0.4)",
+      backgroundColor: "rgba(15,23,42,0.84)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    fullscreenContainer: {
+      flex: 1,
+      backgroundColor: colors.background,
+      padding: 12,
+      gap: 10,
+    },
+    fullscreenHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    fullscreenTitle: {
+      color: colors.text,
+      fontWeight: "700",
+      fontSize: 16,
+    },
+    fullscreenCloseBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
     },
   });

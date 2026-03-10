@@ -26,7 +26,13 @@ import { Route, useFleet } from "@/context/FleetContext";
 import { useAuth } from "@/context/AuthContext";
 import { notify, notifyError } from "@/utils/notify";
 import { useThemeColors, type ThemeColors } from "@/theme/colors";
+import { formatDriverLabel } from "@/utils/formatDriverLabel";
 import { formatVehicleLabel } from "@/utils/formatVehicleLabel";
+import {
+  getMapStyleObject,
+  loadMapViewOptions,
+  MAP_LAYOUT_CONFIG,
+} from "@/utils/mapRuntimeConfig";
 
 type StopInput = { nombre: string; lat: string; lng: string };
 
@@ -60,14 +66,13 @@ const estados: Route["estado"][] = [
 ];
 
 const DEFAULT_REGION: MapRegion = {
-  latitude: -12.0464,
-  longitude: -77.0428,
+  latitude: MAP_LAYOUT_CONFIG.defaultCenter[1],
+  longitude: MAP_LAYOUT_CONFIG.defaultCenter[0],
   latitudeDelta: 0.2,
   longitudeDelta: 0.2,
 };
 
-const USER_ZOOM = 14;
-const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+const USER_ZOOM = MAP_LAYOUT_CONFIG.userZoom;
 const OSRM_BASE_URL = "https://router.project-osrm.org/route/v1/driving";
 
 const parseCoord = (value: string) => {
@@ -78,7 +83,7 @@ const parseCoord = (value: string) => {
 };
 
 type MapPickerCanvasProps = {
-  mapStyle: string;
+  mapStyle: any;
   colors: ThemeColors;
   routeBounds?: { ne: [number, number]; sw: [number, number] };
   mapCenter: [number, number];
@@ -255,8 +260,22 @@ export function RoutesScreen() {
   const [osrmStatus, setOsrmStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [osrmPoints, setOsrmPoints] = useState(0);
   const [osrmNote, setOsrmNote] = useState("");
+  const [mapStyle, setMapStyle] = useState<any>(() => getMapStyleObject("osm_light"));
   const osrmAbortRef = useRef<AbortController | null>(null);
   const osrmDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadStyle = async () => {
+      const options = await loadMapViewOptions();
+      if (!mounted) return;
+      setMapStyle(getMapStyleObject(options.baseMapStyle));
+    };
+    void loadStyle();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const sanitizeCoords = (coords: unknown): number[][] => {
     if (!Array.isArray(coords)) return [];
@@ -821,7 +840,7 @@ export function RoutesScreen() {
 
         <View style={styles.mapFull}>
           <MapPickerCanvas
-            mapStyle={STYLE_URL}
+            mapStyle={mapStyle}
             colors={colors}
             routeBounds={routeBounds ?? undefined}
             mapCenter={mapCenter}
@@ -894,12 +913,12 @@ export function RoutesScreen() {
   const renderRouteItem = ({ item, index }: { item: Route; index: number }) => {
     const vehicleLabel = formatVehicleLabel(
       vehicleById.get(item.vehiculoId),
-      item.vehiculoId
+      "Vehículo no disponible"
     );
-    const driver = driverById.get(item.conductorId);
-    const driverLabel = driver
-      ? `${driver.firstName} ${driver.lastName}`.trim()
-      : item.conductorId;
+    const driverLabel = formatDriverLabel(
+      driverById.get(item.conductorId),
+      "Conductor no disponible"
+    );
     const isFirst = index === 0;
     const isLast = index === listCount - 1;
     return (

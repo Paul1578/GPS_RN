@@ -4,7 +4,8 @@ import { Eye, Filter, XCircle, CheckCircle, Clock } from "lucide-react-native";
 import { Card } from "@/components/common/Card";
 import { useFleet } from "@/context/FleetContext";
 import { useAuth } from "@/context/AuthContext";
-import { useThemeColors, type ThemeColors } from "@/theme/colors";
+import { useTheme, useThemeColors, type ThemeColors } from "@/theme/colors";
+import { formatDriverLabel } from "@/utils/formatDriverLabel";
 import { formatVehicleLabel } from "@/utils/formatVehicleLabel";
 
 type StatusFilter = "all" | string;
@@ -22,6 +23,7 @@ const mapStatus = (status?: string) => {
 export function HistoryScreen() {
   const { routes, vehicles, drivers } = useFleet();
   const { getAllUsers, user } = useAuth();
+  const { scheme } = useTheme();
   const colors = useThemeColors();
   const styles = useMemo(() => getStyles(colors), [colors]);
   const canViewHistory =
@@ -59,10 +61,30 @@ export function HistoryScreen() {
     string,
     { color: string; bg: string; label: string; Icon: React.ComponentType<any> }
   > = {
-    completada: { color: "#16a34a", bg: "#dcfce7", label: "Completada", Icon: CheckCircle },
-    en_progreso: { color: "#2563eb", bg: "#dbeafe", label: "En progreso", Icon: Clock },
-    pendiente: { color: "#f59e0b", bg: "#fef3c7", label: "Pendiente", Icon: Clock },
-    cancelada: { color: "#b91c1c", bg: "#fee2e2", label: "Cancelada", Icon: XCircle },
+    completada: {
+      color: scheme === "dark" ? "#86efac" : "#16a34a",
+      bg: scheme === "dark" ? "#064e3b" : "#dcfce7",
+      label: "Completada",
+      Icon: CheckCircle,
+    },
+    en_progreso: {
+      color: scheme === "dark" ? "#93c5fd" : "#2563eb",
+      bg: scheme === "dark" ? "#1e3a8a" : "#dbeafe",
+      label: "En progreso",
+      Icon: Clock,
+    },
+    pendiente: {
+      color: scheme === "dark" ? "#fcd34d" : "#f59e0b",
+      bg: scheme === "dark" ? "#78350f" : "#fef3c7",
+      label: "Pendiente",
+      Icon: Clock,
+    },
+    cancelada: {
+      color: scheme === "dark" ? "#fecaca" : "#b91c1c",
+      bg: scheme === "dark" ? "#7f1d1d" : "#fee2e2",
+      label: "Cancelada",
+      Icon: XCircle,
+    },
   };
 
   const renderBadge = (status?: string) => {
@@ -89,15 +111,11 @@ export function HistoryScreen() {
     const meta = mapStatus(item.estado);
     const vehicleLabel = formatVehicleLabel(
       vehicleById.get(item.vehiculoId),
-      item.vehiculoId
+      "Vehículo no disponible"
     );
     const driver =
       driverById.get(item.conductorId) ?? users.find((u) => u.id === item.conductorId);
-    const driverLabel = driver
-      ? "firstName" in driver
-        ? `${driver.firstName} ${driver.lastName}`.trim()
-        : `${(driver as any).nombres ?? ""} ${(driver as any).apellidos ?? ""}`.trim()
-      : item.conductorId;
+    const driverLabel = formatDriverLabel(driver, "Conductor no disponible");
     const isFirst = index === 0;
     const isLast = index === listCount - 1;
     return (
@@ -191,7 +209,7 @@ export function HistoryScreen() {
               <Text style={styles.value}>
                 {formatVehicleLabel(
                   vehicleById.get(selected.vehiculoId),
-                  selected.vehiculoId
+                  "Vehículo no disponible"
                 )}
               </Text>
             </View>
@@ -202,11 +220,7 @@ export function HistoryScreen() {
                   const driver =
                     driverById.get(selected.conductorId) ??
                     users.find((u) => u.id === selected.conductorId);
-                  if (!driver) return selected.conductorId;
-                  if ("firstName" in driver) {
-                    return `${driver.firstName} ${driver.lastName}`.trim();
-                  }
-                  return `${(driver as any).nombres ?? ""} ${(driver as any).apellidos ?? ""}`.trim();
+                  return formatDriverLabel(driver, "Conductor no disponible");
                 })()}
               </Text>
             </View>

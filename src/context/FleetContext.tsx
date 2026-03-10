@@ -356,33 +356,57 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   const refreshVehicles = async () => {
     if (!apiFetch) return;
     if (user?.role === "chofer") return;
-    const data = await fetchVehicles(apiFetch);
-    const active = data.filter((v) => normalizeIsActive((v as any).isActive));
-    setVehicles(active.map(mapApiVehicle));
+    try {
+      const data = await fetchVehicles(apiFetch);
+      const active = data.filter((v) => normalizeIsActive((v as any).isActive));
+      setVehicles(active.map(mapApiVehicle));
+    } catch (error) {
+      if ((error as any)?.status === 403) {
+        setVehicles([]);
+        return;
+      }
+      throw error;
+    }
   };
 
   const refreshRoutes = async () => {
     if (!apiFetch) return;
-    const data = await fetchRoutes(apiFetch);
-    const active = data.filter((r) => normalizeIsActive((r as any).isActive));
+    try {
+      const data = await fetchRoutes(apiFetch);
+      const active = data.filter((r) => normalizeIsActive((r as any).isActive));
 
-    setRoutes((prev) => {
-      const prevMap = new Map(prev.map((r) => [r.id, r]));
-      return active.map((apiR) => {
-        const mapped = mapApiRoute(apiR as unknown as ApiRoute);
-        const old = prevMap.get(mapped.id);
-        return old ? { ...mapped, evidencias: old.evidencias, notas: old.notas } : mapped;
+      setRoutes((prev) => {
+        const prevMap = new Map(prev.map((r) => [r.id, r]));
+        return active.map((apiR) => {
+          const mapped = mapApiRoute(apiR as unknown as ApiRoute);
+          const old = prevMap.get(mapped.id);
+          return old ? { ...mapped, evidencias: old.evidencias, notas: old.notas } : mapped;
+        });
       });
-    });
+    } catch (error) {
+      if ((error as any)?.status === 403) {
+        setRoutes([]);
+        return;
+      }
+      throw error;
+    }
   };
 
   const refreshDrivers = async (onlyActive = true) => {
     if (!apiFetch) return;
     if (user?.role === "chofer") return;
     const query = onlyActive ? "?onlyActive=true" : "";
-    const data = await apiFetch<ApiDriver[]>(`/Drivers${query}`);
-    const active = data.filter((d) => normalizeIsActive((d as any).isActive));
-    setDrivers(active.map(mapApiDriver));
+    try {
+      const data = await apiFetch<ApiDriver[]>(`/Drivers${query}`);
+      const active = data.filter((d) => normalizeIsActive((d as any).isActive));
+      setDrivers(active.map(mapApiDriver));
+    } catch (error) {
+      if ((error as any)?.status === 403) {
+        setDrivers([]);
+        return;
+      }
+      throw error;
+    }
   };
 
   useEffect(() => {

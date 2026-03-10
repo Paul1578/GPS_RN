@@ -90,6 +90,7 @@ export function TeamScreen() {
     phoneNumber: "",
   });
   const [assignSelection, setAssignSelection] = useState<Record<string, string>>({});
+  const [teamQuery, setTeamQuery] = useState("");
 
   const team = getTeamUsers();
   const canManageTeam = !!user?.permissions?.canManageTeam;
@@ -100,6 +101,23 @@ export function TeamScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const normalizedTeamQuery = teamQuery.trim().toLowerCase();
+
+  const filteredTeam = useMemo(() => {
+    if (!normalizedTeamQuery) return team;
+    return team.filter((member) => {
+      const fields = [
+        member.nombres,
+        member.apellidos,
+        member.usuario,
+        member.email ?? "",
+      ];
+      return fields.some((field) =>
+        field.toLowerCase().includes(normalizedTeamQuery)
+      );
+    });
+  }, [normalizedTeamQuery, team]);
+
   const choferUsers = useMemo(
     () => team.filter((u) => u.role === "chofer"),
     [team]
@@ -109,6 +127,21 @@ export function TeamScreen() {
     () => vehicles.filter((v) => v.estado === "disponible"),
     [vehicles]
   );
+
+  const filteredDrivers = useMemo(() => {
+    if (!normalizedTeamQuery) return drivers;
+    return drivers.filter((driver) => {
+      const fields = [
+        driver.firstName,
+        driver.lastName,
+        driver.documentNumber,
+        driver.phoneNumber,
+      ];
+      return fields.some((field) =>
+        field.toLowerCase().includes(normalizedTeamQuery)
+      );
+    });
+  }, [drivers, normalizedTeamQuery]);
 
   const handleRoleChange = async (userId: string, role: UserRole) => {
     setLoadingId(userId);
@@ -220,7 +253,7 @@ export function TeamScreen() {
     notifyError(result.message ?? "No se pudo crear el chofer");
   };
 
-  const driverCount = drivers.length;
+  const driverCount = filteredDrivers.length;
   const renderDriver = ({
     item,
     index,
@@ -335,7 +368,7 @@ export function TeamScreen() {
 
   return (
     <FlatList
-      data={drivers}
+      data={filteredDrivers}
       keyExtractor={(item) => item.id}
       renderItem={renderDriver}
       style={{ flex: 1, backgroundColor: colors.background }}
@@ -364,6 +397,13 @@ export function TeamScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
+
+            <TextField
+              label="Buscar en equipo"
+              value={teamQuery}
+              onChangeText={setTeamQuery}
+              placeholder="Nombre, usuario, documento..."
+            />
 
             {showCreateUser && (
               <View style={styles.formCard}>
@@ -431,8 +471,10 @@ export function TeamScreen() {
               </View>
             )}
 
-            {team.length === 0 && <Text style={styles.muted}>No hay usuarios aún.</Text>}
-            {team.map((member) => {
+            {filteredTeam.length === 0 && (
+              <Text style={styles.muted}>No hay usuarios para el filtro.</Text>
+            )}
+            {filteredTeam.map((member) => {
               const role = roles.find((r) => r.id === member.role);
               const isEditingPermissions = editingPermissionsUserId === member.id;
               return (
@@ -467,7 +509,12 @@ export function TeamScreen() {
 
                   <View style={{ alignItems: "flex-end", gap: 8 }}>
                     {isSuperAdmin() && (
-                      <View style={styles.roleRow}>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.roleRow}
+                        style={styles.roleScroll}
+                      >
                         {roles.map((r) => {
                           const active = r.id === member.role;
                           return (
@@ -483,7 +530,7 @@ export function TeamScreen() {
                             </TouchableOpacity>
                           );
                         })}
-                      </View>
+                      </ScrollView>
                     )}
                     <View style={styles.switchRow}>
                       <Text style={styles.muted}>Activo</Text>
@@ -697,10 +744,12 @@ const getStyles = (colors: ThemeColors) =>
     },
     roleRow: {
       flexDirection: "row",
-      flexWrap: "wrap",
       gap: 6,
-      maxWidth: 280,
-      justifyContent: "flex-end",
+      justifyContent: "flex-start",
+      paddingRight: 4,
+    },
+    roleScroll: {
+      maxWidth: 260,
     },
     roleChip: {
       borderWidth: 1,

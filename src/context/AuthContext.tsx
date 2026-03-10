@@ -11,7 +11,7 @@ import { decode as atob } from "base-64";
 import { notify, notifyError } from "@/utils/notify";
 
 const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://camping-again-breath-meal.trycloudflare.com/api";
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://absorption-cio-infinite-shoe.trycloudflare.com/api";
 const TOKEN_STORAGE_KEY = "auth_tokens";
 const CURRENT_USER_STORAGE_KEY = "currentUser";
 
@@ -193,6 +193,9 @@ const defaultPermissions: Record<UserRole, UserPermissions> = {
   },
 };
 
+const isInvalidRefreshStatus = (status?: number) =>
+  status === 400 || status === 401 || status === 403;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [teamUsers, setTeamUsers] = useState<User[]>([]);
@@ -254,13 +257,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated && user?.role !== "chofer") {
+    if (isAuthenticated && user?.permissions?.canManageTeam) {
       void refreshTeamUsers();
     } else {
       setTeamUsers([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, user?.role]);
+  }, [isAuthenticated, user?.permissions?.canManageTeam]);
 
   const buildApiError = async (response: Response) => {
     let data: ApiErrorPayload | null = null;
@@ -270,8 +273,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore parse errors
     }
+    const fallbackMessage =
+      response.statusText?.trim() || `Error de red (${response.status})`;
     const enrichedError = new Error(
-      data?.message ?? response.statusText
+      data?.message?.trim() || fallbackMessage
     ) as Error & { status?: number; data?: ApiErrorPayload | null };
     enrichedError.status = response.status;
     enrichedError.data = data;
@@ -288,15 +293,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ refreshToken }),
       });
       if (!response.ok) {
-        await clearAuthState();
+        if (isInvalidRefreshStatus(response.status)) {
+          await clearAuthState();
+        }
         return false;
       }
       const data = (await response.json()) as AuthResponseDto;
       await applyAuthResponse(data);
       return true;
     } catch (error) {
-      console.error("Error al refrescar token:", error);
-      await clearAuthState();
+      // En móviles no forzamos logout por cortes de red temporales.
+      console.warn("Error temporal al refrescar token:", error);
       return false;
     }
   };
@@ -672,11 +679,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshTeamUsers = async () => {
+    if (!user?.permissions?.canManageTeam) {
+      setTeamUsers([]);
+      return;
+    }
     try {
       const data = await apiFetch<ApiUser[]>("/Users/my-team");
       const active = data.filter((u) => (u as any).isActive !== false);
       setTeamUsers(active.map(mapApiUser));
     } catch (error) {
+      if ((error as any)?.status === 403) {
+        setTeamUsers([]);
+        return;
+      }
       console.error("Error obteniendo equipo:", error);
     }
   };
