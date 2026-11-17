@@ -180,6 +180,7 @@ export const getMapStyleObject = (style: MapBaseStyle) => {
         type: "raster",
         tiles: [selected.tiles],
         tileSize: 256,
+        maxzoom: 19,
         attribution: selected.attribution,
       },
     },

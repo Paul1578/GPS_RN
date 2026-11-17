@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   FlatList,
+  Modal,
   ScrollView,
   StyleSheet,
   Switch,
@@ -90,6 +91,7 @@ export function TeamScreen() {
     phoneNumber: "",
   });
   const [assignSelection, setAssignSelection] = useState<Record<string, string>>({});
+  const [vehiclePickerDriverId, setVehiclePickerDriverId] = useState<string | null>(null);
   const [teamQuery, setTeamQuery] = useState("");
 
   const team = getTeamUsers();
@@ -142,6 +144,28 @@ export function TeamScreen() {
       );
     });
   }, [drivers, normalizedTeamQuery]);
+
+  const getDriverVehicleOptions = useCallback(
+    (driverVehicleId?: string | null) => {
+      const assignedVehicle = driverVehicleId
+        ? vehicles.find((vehicle) => vehicle.id === driverVehicleId)
+        : undefined;
+      return assignedVehicle
+        ? [assignedVehicle, ...availableVehicles.filter((v) => v.id !== assignedVehicle.id)]
+        : availableVehicles;
+    },
+    [availableVehicles, vehicles]
+  );
+
+  const vehiclePickerDriver = useMemo(
+    () => drivers.find((driver) => driver.id === vehiclePickerDriverId) ?? null,
+    [drivers, vehiclePickerDriverId]
+  );
+
+  const vehiclePickerOptions = useMemo(
+    () => getDriverVehicleOptions(vehiclePickerDriver?.vehicleId),
+    [getDriverVehicleOptions, vehiclePickerDriver?.vehicleId]
+  );
 
   const handleRoleChange = async (userId: string, role: UserRole) => {
     setLoadingId(userId);
@@ -262,11 +286,14 @@ export function TeamScreen() {
     index: number;
   }) => {
     const assignedVehicle = vehicles.find((v) => v.id === item.vehicleId);
-    const availableList = assignedVehicle
-      ? [assignedVehicle, ...availableVehicles.filter((v) => v.id !== assignedVehicle.id)]
-      : availableVehicles;
+    const availableList = getDriverVehicleOptions(item.vehicleId);
+    const selectedVehicleId = assignSelection[item.id] ?? item.vehicleId ?? null;
+    const selectedVehicle = selectedVehicleId
+      ? vehicles.find((vehicle) => vehicle.id === selectedVehicleId)
+      : null;
     const isFirst = index === 0;
     const isLast = index === driverCount - 1;
+    const hasVehicleOptions = availableList.length > 0;
     return (
       <View
         style={[
@@ -293,58 +320,70 @@ export function TeamScreen() {
               </View>
             </View>
           </View>
-          <View style={{ gap: 8, alignItems: "flex-end" }}>
-            {availableList.length > 0 && (
-              <View style={styles.selectorRow}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {availableList.map((veh) => {
-                    const active = (assignSelection[item.id] ?? item.vehicleId) === veh.id;
-                    return (
-                      <TouchableOpacity
-                        key={veh.id}
-                        style={[styles.roleChip, active && styles.roleChipActive]}
-                        onPress={() =>
-                          setAssignSelection((prev) => ({ ...prev, [item.id]: veh.id }))
-                        }
-                      >
-                        <Text style={[styles.roleText, active && styles.roleTextActive]}>
-                          {formatVehicleLabel(veh)}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
+          <View style={styles.driverControls}>
+            <View style={styles.vehicleSelectorCompact}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.vehicleSelectorLabel}>Seleccionado</Text>
+                <Text style={styles.vehicleSelectorValue} numberOfLines={1}>
+                  {selectedVehicle ? formatVehicleLabel(selectedVehicle) : "Sin vehículo"}
+                </Text>
               </View>
-            )}
-            <View style={styles.driverActions}>
-              <Button
-                title="Asignar"
-                onPress={async () => {
-                  const vehicleId = assignSelection[item.id] ?? item.vehicleId;
-                  if (!vehicleId) {
-                    notifyError("Selecciona un vehículo");
-                    return;
-                  }
-                  const result = await assignVehicleToDriver(item.id, vehicleId);
-                  if (!result.ok) {
-                    notifyError(result.message ?? "No se pudo asignar vehículo");
-                  }
+              <TouchableOpacity
+                style={[
+                  styles.vehicleSelectorAction,
+                  !hasVehicleOptions && styles.vehicleSelectorActionDisabled,
+                ]}
+                onPress={() => {
+                  if (!hasVehicleOptions) return;
+                  setVehiclePickerDriverId(item.id);
                 }}
-              />
-              {item.vehicleId && (
+                disabled={!hasVehicleOptions}
+              >
+                <Text
+                  style={[
+                    styles.vehicleSelectorActionText,
+                    !hasVehicleOptions && styles.vehicleSelectorActionTextDisabled,
+                  ]}
+                >
+                  {hasVehicleOptions ? "Cambiar" : "Sin opciones"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.driverActionsRow}>
+              <View style={styles.driverActionFlex}>
                 <Button
-                  title="Desasignar"
-                  variant="secondary"
+                  title="Asignar"
                   onPress={async () => {
-                    const result = await unassignVehicleFromDriver(item.id);
+                    const vehicleId = assignSelection[item.id] ?? item.vehicleId;
+                    if (!vehicleId) {
+                      notifyError("Selecciona un vehículo");
+                      return;
+                    }
+                    const result = await assignVehicleToDriver(item.id, vehicleId);
                     if (!result.ok) {
-                      notifyError(result.message ?? "No se pudo desasignar vehículo");
+                      notifyError(result.message ?? "No se pudo asignar vehículo");
                     }
                   }}
                 />
+              </View>
+              {item.vehicleId && (
+                <View style={styles.driverActionFlex}>
+                  <Button
+                    title="Desasignar"
+                    variant="secondary"
+                    onPress={async () => {
+                      const result = await unassignVehicleFromDriver(item.id);
+                      if (!result.ok) {
+                        notifyError(result.message ?? "No se pudo desasignar vehículo");
+                      }
+                    }}
+                  />
+                </View>
               )}
             </View>
           </View>
+
         </View>
       </View>
     );
@@ -367,17 +406,18 @@ export function TeamScreen() {
   }
 
   return (
-    <FlatList
-      data={filteredDrivers}
-      keyExtractor={(item) => item.id}
-      renderItem={renderDriver}
-      style={{ flex: 1, backgroundColor: colors.background }}
-      contentContainerStyle={{ padding: 16, gap: 14 }}
-      initialNumToRender={8}
-      windowSize={7}
-      removeClippedSubviews
-      ListHeaderComponent={
-        <>
+    <>
+      <FlatList
+        data={filteredDrivers}
+        keyExtractor={(item) => item.id}
+        renderItem={renderDriver}
+        style={{ flex: 1, backgroundColor: colors.background }}
+        contentContainerStyle={{ padding: 16, gap: 14 }}
+        initialNumToRender={8}
+        windowSize={7}
+        removeClippedSubviews
+        ListHeaderComponent={
+          <>
           <Text style={styles.title}>Equipo</Text>
 
           <Card>
@@ -652,14 +692,77 @@ export function TeamScreen() {
               </View>
             </Card>
           )}
-        </>
-      }
-      ListEmptyComponent={
-        <Card>
-          <Text style={styles.muted}>No hay choferes registrados.</Text>
-        </Card>
-      }
-    />
+          </>
+        }
+        ListEmptyComponent={
+          <Card>
+            <Text style={styles.muted}>No hay choferes registrados.</Text>
+          </Card>
+        }
+      />
+
+      <Modal
+        transparent
+        visible={!!vehiclePickerDriverId}
+        animationType="fade"
+        onRequestClose={() => setVehiclePickerDriverId(null)}
+      >
+        <View style={styles.pickerOverlay}>
+          <View style={styles.pickerCard}>
+            <View style={styles.pickerHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.pickerTitle}>Seleccionar vehículo</Text>
+                {vehiclePickerDriver && (
+                  <Text style={styles.pickerSubtitle}>
+                    {vehiclePickerDriver.firstName} {vehiclePickerDriver.lastName}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity
+                style={styles.pickerCloseBtn}
+                onPress={() => setVehiclePickerDriverId(null)}
+              >
+                <X color={colors.textMuted} size={16} />
+              </TouchableOpacity>
+            </View>
+
+            {vehiclePickerOptions.length === 0 ? (
+              <Text style={styles.pickerEmpty}>No hay vehículos disponibles para asignar.</Text>
+            ) : (
+              <ScrollView style={styles.pickerList} showsVerticalScrollIndicator={false}>
+                {vehiclePickerOptions.map((vehicle) => {
+                  const active =
+                    vehiclePickerDriver &&
+                    (assignSelection[vehiclePickerDriver.id] ?? vehiclePickerDriver.vehicleId) ===
+                      vehicle.id;
+                  return (
+                    <TouchableOpacity
+                      key={vehicle.id}
+                      style={[styles.pickerItem, active && styles.pickerItemActive]}
+                      onPress={() => {
+                        if (!vehiclePickerDriver) return;
+                        setAssignSelection((prev) => ({
+                          ...prev,
+                          [vehiclePickerDriver.id]: vehicle.id,
+                        }));
+                        setVehiclePickerDriverId(null);
+                      }}
+                    >
+                      <Text
+                        style={[styles.pickerItemText, active && styles.pickerItemTextActive]}
+                        numberOfLines={1}
+                      >
+                        {formatVehicleLabel(vehicle)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -852,5 +955,128 @@ const getStyles = (colors: ThemeColors) =>
     },
     driverActions: {
       gap: 8,
+    },
+    driverControls: {
+      width: "100%",
+      gap: 10,
+      marginTop: 8,
+    },
+    vehicleSelectorCompact: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      backgroundColor: colors.surfaceAlt,
+      paddingHorizontal: 10,
+      paddingVertical: 9,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    vehicleSelectorLabel: {
+      color: colors.textMuted,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    vehicleSelectorValue: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    vehicleSelectorAction: {
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 10,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+    },
+    vehicleSelectorActionDisabled: {
+      opacity: 0.6,
+    },
+    vehicleSelectorActionText: {
+      color: colors.primary,
+      fontWeight: "700",
+      fontSize: 12,
+    },
+    vehicleSelectorActionTextDisabled: {
+      color: colors.textMuted,
+    },
+    driverActionsRow: {
+      flexDirection: "row",
+      gap: 8,
+      alignItems: "center",
+    },
+    driverActionFlex: {
+      flex: 1,
+      minWidth: 110,
+    },
+    pickerOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(2,6,23,0.62)",
+      justifyContent: "center",
+      padding: 16,
+    },
+    pickerCard: {
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      padding: 12,
+      gap: 10,
+      maxHeight: "75%",
+    },
+    pickerHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    pickerTitle: {
+      color: colors.text,
+      fontWeight: "700",
+      fontSize: 16,
+    },
+    pickerSubtitle: {
+      color: colors.textMuted,
+      marginTop: 2,
+      fontSize: 12,
+    },
+    pickerCloseBtn: {
+      width: 30,
+      height: 30,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceAlt,
+    },
+    pickerList: {
+      maxHeight: 280,
+    },
+    pickerItem: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 10,
+      backgroundColor: colors.surfaceAlt,
+      paddingHorizontal: 10,
+      paddingVertical: 9,
+      marginBottom: 8,
+    },
+    pickerItemActive: {
+      borderColor: colors.chipBorder,
+      backgroundColor: colors.chipBg,
+    },
+    pickerItemText: {
+      color: colors.text,
+      fontWeight: "600",
+      fontSize: 13,
+    },
+    pickerItemTextActive: {
+      color: colors.primary,
+      fontWeight: "700",
+    },
+    pickerEmpty: {
+      color: colors.textMuted,
+      fontSize: 13,
     },
   });

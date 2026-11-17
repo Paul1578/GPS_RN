@@ -11,7 +11,7 @@ import { decode as atob } from "base-64";
 import { notify, notifyError } from "@/utils/notify";
 
 const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://absorption-cio-infinite-shoe.trycloudflare.com/api";
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://procedure-snake-another-pregnant.trycloudflare.com/api";
 const TOKEN_STORAGE_KEY = "auth_tokens";
 const CURRENT_USER_STORAGE_KEY = "currentUser";
 

@@ -61,6 +61,7 @@ export function DriverRouteScreen() {
   const { height: screenHeight } = useWindowDimensions();
   const lastTrackingRef = useRef(0);
   const osrmAbortRef = useRef<AbortController | null>(null);
+  const lastAutoFitKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -239,6 +240,20 @@ export function DriverRouteScreen() {
     return null;
   }, [routeGeometry, straightLineFeature]);
 
+  useEffect(() => {
+    if (!activeRoute?.id || !routeBounds) return;
+    const nextKey = [
+      activeRoute.id,
+      routeBounds.ne[0].toFixed(6),
+      routeBounds.ne[1].toFixed(6),
+      routeBounds.sw[0].toFixed(6),
+      routeBounds.sw[1].toFixed(6),
+    ].join(":");
+    if (lastAutoFitKeyRef.current === nextKey) return;
+    lastAutoFitKeyRef.current = nextKey;
+    setAutoCameraEnabled(true);
+  }, [activeRoute?.id, routeBounds]);
+
   const mapCenter = useMemo<[number, number]>(() => {
     const base = pathCoords[0] ?? [MAP_LAYOUT_CONFIG.defaultCenter[1], MAP_LAYOUT_CONFIG.defaultCenter[0]];
     return [base[1], base[0]];
@@ -281,10 +296,8 @@ export function DriverRouteScreen() {
               logoEnabled
               attributionEnabled
               surfaceView={false}
-              onRegionDidChange={(payload) => {
-                if (payload?.properties?.isUserInteraction) {
-                  if (autoCameraEnabled) setAutoCameraEnabled(false);
-                }
+              onRegionDidChange={() => {
+                if (autoCameraEnabled) setAutoCameraEnabled(false);
               }}
             >
               {autoCameraEnabled && (
@@ -300,7 +313,7 @@ export function DriverRouteScreen() {
                         }
                       : undefined
                   }
-                  centerCoordinate={routeBounds ? undefined : userCoord ?? mapCenter}
+                  centerCoordinate={routeBounds ? undefined : mapCenter}
                   zoomLevel={routeBounds ? undefined : DEFAULT_ZOOM}
                   animationDuration={600}
                 />
@@ -480,7 +493,7 @@ export function DriverRouteScreen() {
                       }
                     : undefined
                 }
-                centerCoordinate={routeBounds ? undefined : userCoord ?? mapCenter}
+                centerCoordinate={routeBounds ? undefined : mapCenter}
                 zoomLevel={routeBounds ? undefined : DEFAULT_ZOOM}
                 animationDuration={500}
               />

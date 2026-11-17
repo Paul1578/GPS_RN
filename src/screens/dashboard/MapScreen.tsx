@@ -25,7 +25,6 @@ import {
 import {
   Crosshair,
   Filter,
-  LocateFixed,
   MapPin,
   Route as RouteIcon,
   Search,
@@ -240,7 +239,7 @@ const MapCanvas = memo(function MapCanvas({
         </ShapeSource>
       )}
 
-      {showTrackingLine && trackingPoint && (
+      {trackingPoint && (
         <PointAnnotation
           id="tracking-latest-point"
           coordinate={[trackingPoint[1], trackingPoint[0]]}
@@ -519,6 +518,12 @@ export function MapScreen() {
     });
   }, []);
 
+  const fitSelectedRouteBounds = useCallback(() => {
+    if (!selectedRouteBounds) return false;
+    updateCamera({ kind: "bounds", bounds: selectedRouteBounds });
+    return true;
+  }, [selectedRouteBounds, updateCamera]);
+
   const applyRouteViewportOrFit = useCallback(() => {
     if (!selectedRouteId) return;
     const viewport = routeViewportsById[selectedRouteId];
@@ -530,8 +535,7 @@ export function MapScreen() {
       });
       return;
     }
-    if (selectedRouteBounds) {
-      updateCamera({ kind: "bounds", bounds: selectedRouteBounds });
+    if (fitSelectedRouteBounds()) {
       return;
     }
     if (userCoord) {
@@ -547,7 +551,7 @@ export function MapScreen() {
       center: MAP_LAYOUT_CONFIG.defaultCenter,
       zoom: MAP_LAYOUT_CONFIG.defaultZoom,
     });
-  }, [routeViewportsById, selectedRouteId, selectedRouteBounds, updateCamera, userCoord]);
+  }, [fitSelectedRouteBounds, routeViewportsById, selectedRouteId, updateCamera, userCoord]);
 
   useEffect(() => {
     applyRouteViewportOrFit();
@@ -881,11 +885,14 @@ export function MapScreen() {
   };
 
   const handleRecenterRoute = () => {
+    setFollowTruck(false);
+    if (fitSelectedRouteBounds()) return;
     applyRouteViewportOrFit();
   };
 
   const handleCenterTruck = () => {
     if (!trackingPoint) return;
+    setFollowTruck(false);
     updateCamera({
       kind: "center",
       center: [trackingPoint[1], trackingPoint[0]],
@@ -895,6 +902,7 @@ export function MapScreen() {
 
   const handleCenterUser = () => {
     if (!userCoord) return;
+    setFollowTruck(false);
     updateCamera({
       kind: "center",
       center: userCoord,
@@ -999,13 +1007,6 @@ export function MapScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.controlBtn}
-          onPress={handleCenterUser}
-          onLongPress={handleCenterUser}
-        >
-          <LocateFixed color={colors.primaryText} size={16} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.controlBtn}
           onPress={() => setIsFullscreen((prev) => !prev)}
         >
           {fullscreen ? (
@@ -1042,6 +1043,15 @@ export function MapScreen() {
         <View style={styles.detailsCard}>
           <Text style={styles.muted}>No tienes permisos para ver el mapa en tiempo real.</Text>
         </View>
+      </View>
+    );
+  }
+
+  if (!optionsLoaded || !routeViewportsLoaded) {
+    return (
+      <View style={styles.bootLoadingState}>
+        <ActivityIndicator size="small" color={colors.primary} />
+        <Text style={styles.bootLoadingText}>Cargando configuración del mapa...</Text>
       </View>
     );
   }
@@ -1855,14 +1865,31 @@ const getStyles = (colors: ThemeColors) =>
       backgroundColor: "#f59e0b",
     },
     trackingMarker: {
-      width: 30,
-      height: 30,
-      borderRadius: 16,
-      borderWidth: 2,
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      borderWidth: 2.5,
       borderColor: "#fff",
-      backgroundColor: "#7c3aed",
+      backgroundColor: "#4c1d95",
       alignItems: "center",
       justifyContent: "center",
+      shadowColor: "#020617",
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.4,
+      shadowRadius: 5,
+      elevation: 6,
+    },
+    bootLoadingState: {
+      flex: 1,
+      backgroundColor: colors.background,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      padding: 16,
+    },
+    bootLoadingText: {
+      color: colors.textMuted,
+      fontWeight: "600",
     },
     fullscreenContainer: {
       flex: 1,
